@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AquaFlow — Premium Hydration & Ambient Reminders</title>
+    <!-- Google Fonts: Outfit (modern sans) & Playfair Display (luxury serif) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500;700&family=Playfair+Display:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Background Decorative Glows -->
+        <div class="glow glow-1"></div>
+        <div class="glow glow-2"></div>
+
+        <!-- Premium Header -->
+        <header>
+            <div class="brand">
+                <span class="gold-subtitle">AQUAFLOW</span>
+                <h1 class="gold-title">L'Élixir de Vie</h1>
+            </div>
+            
+            <div class="header-right">
+                <!-- Supabase Google SSO Panel -->
+                <div id="auth-panel" class="auth-panel">
+                    <button id="btn-login-google" class="gold-btn btn-outline btn-sso">
+                        <svg class="google-icon" viewBox="0 0 24 24" width="16" height="16">
+                            <path fill="#EA4335" d="M12.24 10.285V14.4h6.887c-.648 2.41-2.519 4.114-5.136 4.114A5.99 5.99 0 0 1 8 12.5a5.99 5.99 0 0 1 5.99-6.027c1.558 0 2.973.573 4.07 1.517l3.14-3.14C19.29 2.983 16.797 2 13.99 2 8.47 2 4 6.47 4 12s4.47 10 9.99 10c5.77 0 9.61-4.06 9.61-9.79 0-.66-.06-1.29-.17-1.925H12.24Z"/>
+                        </svg>
+                        Sign In
+                    </button>
+                    <div id="user-profile" class="user-profile hidden">
+                        <img id="user-avatar" class="user-avatar" src="" alt="User Avatar">
+                        <div class="user-details">
+                            <span id="user-name" class="user-name">Guest</span>
+                            <button id="btn-logout" class="btn-logout-link">Sign Out</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="header-status">
+                    <span id="current-date-str">Saturday, June 20</span>
+                    <span class="status-indicator"><span class="pulse-dot"></span> Active Monitoring</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="dashboard-grid">
+            <!-- LEFT: Chalice & Intake Progress Visualizer -->
+            <section class="card visualizer-card">
+                <div class="card-glow"></div>
+                <div class="chalice-section">
+                    <div class="chalice-container">
+                        <!-- Liquid Goblet Outline -->
+                        <div class="goblet-rim"></div>
+                        <div class="goblet-body">
+                            <!-- Water Fill Element -->
+                            <div class="water-fill" id="water-fill-level">
+                                <div class="wave wave-back"></div>
+                                <div class="wave wave-front"></div>
+                                <div class="gold-shimmer"></div>
+                            </div>
+                        </div>
+                        <div class="goblet-stem"></div>
+                        <div class="goblet-base"></div>
+                    </div>
+
+                    <div class="stats-overlay">
+                        <div class="percentage-display" id="progress-percentage">0%</div>
+                        <div class="progress-subtext">of daily goal achieved</div>
+                        <div class="volume-readout">
+                            <span id="current-intake" class="gold-text">0</span>
+                            <span class="divider">/</span>
+                            <span id="target-goal">2000</span> <span class="unit">ml</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT: Controls & Reminder Configuration -->
+            <div class="controls-column">
+                <!-- Log Water Card -->
+                <section class="card control-card">
+                    <div class="card-header">
+                        <h2>Log Hydration</h2>
+                        <span class="gold-line"></span>
+                    </div>
+                    <div class="quick-add-grid">
+                        <button class="gold-btn btn-quick-add" data-amount="250">
+                            <span class="btn-glow"></span>
+                            <span class="value">+250</span><span class="unit">ml</span>
+                        </button>
+                        <button class="gold-btn btn-quick-add" data-amount="330">
+                            <span class="btn-glow"></span>
+                            <span class="value">+330</span><span class="unit">ml</span>
+                        </button>
+                        <button class="gold-btn btn-quick-add" data-amount="500">
+                            <span class="btn-glow"></span>
+                            <span class="value">+500</span><span class="unit">ml</span>
+                        </button>
+                        <button class="gold-btn btn-quick-add" data-amount="750">
+                            <span class="btn-glow"></span>
+                            <span class="value">+750</span><span class="unit">ml</span>
+                        </button>
+                    </div>
+
+                    <div class="custom-add-row">
+                        <div class="input-wrapper">
+                            <input type="number" id="custom-amount-input" min="10" max="2000" placeholder="Custom quantity">
+                            <span class="input-unit">ml</span>
+                        </div>
+                        <button class="gold-btn btn-solid" id="btn-add-custom">
+                            Add Entry
+                        </button>
+                    </div>
+                </section>
+
+                <!-- Smart Timer Card -->
+                <section class="card timer-card">
+                    <div class="card-header">
+                        <h2>Hydration Timer</h2>
+                        <span class="gold-line"></span>
+                    </div>
+
+                    <div class="timer-display-section">
+                        <div class="timer-countdown" id="timer-digits">01:00:00</div>
+                        <div class="timer-progress-bar">
+                            <div class="timer-progress-fill" id="timer-bar-fill"></div>
+                        </div>
+                    </div>
+
+                    <div class="timer-controls">
+                        <button class="gold-btn btn-outline" id="btn-timer-toggle">Start Timer</button>
+                        <button class="gold-btn btn-outline" id="btn-timer-reset">Reset</button>
+                        <button class="gold-btn btn-solid" id="btn-trigger-screensaver">Test Screen Saver</button>
+                    </div>
+
+                    <div class="timer-settings">
+                        <div class="setting-item">
+                            <label for="interval-select">Reminder Every:</label>
+                            <select id="interval-select">
+                                <option value="60">1 Min (Test)</option>
+                                <option value="1800">30 Mins</option>
+                                <option value="2700">45 Mins</option>
+                                <option value="3600" selected>1 Hour</option>
+                                <option value="5400">1.5 Hours</option>
+                                <option value="7200">2 Hours</option>
+                            </select>
+                        </div>
+                        <button class="gold-btn btn-text" id="btn-enable-notifications">
+                            🔔 Enable Desktop Notifications
+                        </button>
+                    </div>
+                </section>
+            </div>
+
+            <!-- LOWER FULL WIDTH: Settings & Logs History -->
+            <section class="card full-width-card">
+                <div class="history-grid">
+                    <!-- Daily Settings Adjustments -->
+                    <div class="settings-subpanel">
+                        <h3>Configuration</h3>
+                        <span class="gold-line"></span>
+                        
+                        <div class="config-fields">
+                            <div class="setting-row">
+                                <label for="daily-goal-input">Daily Target:</label>
+                                <div class="goal-input-wrapper">
+                                    <input type="number" id="daily-goal-input" value="2000" min="500" max="10000" step="100">
+                                    <span class="input-unit">ml</span>
+                                </div>
+                            </div>
+                            <div class="setting-row">
+                                <label>Audio Feedback:</label>
+                                <div class="toggle-container">
+                                    <input type="checkbox" id="sound-toggle" checked>
+                                    <label for="sound-toggle" class="toggle-slider"></label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Achievements / Stats summary -->
+                        <div class="achievements-section">
+                            <h4>Milestones</h4>
+                            <div class="badge-row">
+                                <div class="badge locked" id="badge-first-sip" title="Log your first sip of water today">
+                                    💧 <span>First Sip</span>
+                                </div>
+                                <div class="badge locked" id="badge-halfway" title="Reach 50% of your daily goal">
+                                    🏅 <span>Halfway</span>
+                                </div>
+                                <div class="badge locked" id="badge-hydrated" title="Reach 100% of your daily goal">
+                                    👑 <span>Hydrated</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Logs List -->
+                    <div class="logs-subpanel">
+                        <div class="logs-header">
+                            <h3>Hydration History</h3>
+                            <button class="gold-btn btn-text" id="btn-clear-history">Clear History</button>
+                        </div>
+                        <span class="gold-line"></span>
+                        <div class="logs-list-wrapper">
+                            <ul id="logs-list" class="logs-list">
+                                <li class="empty-log-msg">No entries logged for today. Start drinking water!</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- FULLSCREEN BEACH WAVE SCREEN SAVER -->
+    <div id="screensaver" class="screensaver-overlay">
+        <!-- Sand Shore Background base -->
+        <div class="sand-shore"></div>
+        
+        <!-- Animated Coastal Ocean Waves -->
+        <div class="beach-waves">
+            <div class="beach-wave shore-foam"></div>
+            <div class="beach-wave shallow-wave"></div>
+            <div class="beach-wave mid-wave"></div>
+            <div class="beach-wave deep-wave"></div>
+        </div>
+
+        <!-- Floating Screen Saver Content -->
+        <div class="screensaver-content">
+            <div class="screensaver-logo">AQUAFLOW</div>
+            <h2 class="screensaver-title">L'Heure de l'Hydratation</h2>
+            <div class="pulse-container">
+                <div class="pulse-ring"></div>
+                <div class="pulse-water-icon">💧</div>
+            </div>
+            <p class="screensaver-instruction">Time to drink water. Close your eyes, take a deep breath, and have a sip.</p>
+            <div class="dismiss-prompt">[ Tap anywhere to return to active tracking ]</div>
+        </div>
+    </div>
+
+    <!-- Supabase SDK & Config -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
