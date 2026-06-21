@@ -41,6 +41,15 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCountdownDisplay();
 });
 
+// Register Service Worker for PWA installability
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('Service worker registered with scope:', reg.scope))
+            .catch(err => console.error('Service worker registration failed:', err));
+    });
+}
+
 // Display Current Date in Premium Format
 function initDateDisplay() {
     const options = { weekday: 'long', month: 'long', day: 'numeric' };
