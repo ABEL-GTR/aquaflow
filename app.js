@@ -11,7 +11,8 @@ let state = {
     timerRemaining: 3600,
     isTimerRunning: false,
     soundEnabled: true,
-    lastActiveDate: ''
+    lastActiveDate: '',
+    limitReached: false
 };
 
 // Supabase Instance & Session User variables
@@ -199,8 +200,15 @@ async function syncCloudData() {
                 timestamp: new Date(dbLog.logged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
             }));
             
-            // Re-aggregate current intake volume
-            state.currentIntake = state.logs.reduce((acc, log) => acc + log.amount, 0);
+            // Re-aggregate current intake volume and check limit
+            const totalLogged = state.logs.reduce((acc, log) => acc + log.amount, 0);
+            if (totalLogged >= state.dailyGoal) {
+                state.limitReached = true;
+                state.currentIntake = 0;
+            } else {
+                state.limitReached = false;
+                state.currentIntake = totalLogged;
+            }
         }
         
         // Sync database values locally
@@ -247,6 +255,16 @@ function initAudio() {
     }
 }
 
+// Speak text helper function
+function speakText(text) {
+    if (state.soundEnabled && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.volume = 1.0;
+        window.speechSynthesis.speak(utterance);
+    }
+}
+
 // Play Bubble Droplet Sound (when water logged)
 function playBubbleSound() {
     if (!state.soundEnabled) return;
@@ -267,7 +285,7 @@ function playBubbleSound() {
         
         // Fast envelope volume decay
         gain.gain.setValueAtTime(0.001, now);
-        gain.gain.linearRampToValueAtTime(0.25, now + 0.02);
+        gain.gain.linearRampToValueAtTime(0.8, now + 0.02);
         gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
         
         osc.start(now);
@@ -298,7 +316,7 @@ function playChimeSound() {
             
             // Premium resonance chime decay
             gain.gain.setValueAtTime(0.001, now + (idx * 0.08));
-            gain.gain.linearRampToValueAtTime(0.12, now + (idx * 0.08) + 0.02);
+            gain.gain.linearRampToValueAtTime(0.4, now + (idx * 0.08) + 0.02);
             gain.gain.exponentialRampToValueAtTime(0.001, now + (idx * 0.08) + 1.8);
             
             osc.start(now + (idx * 0.08));
@@ -389,7 +407,7 @@ function startOceanAmbience() {
         oceanLfoNode.start(now);
         
         // Fade in entire ambience smoothly
-        oceanGainNode.gain.linearRampToValueAtTime(0.2, now + 1.5);
+        oceanGainNode.gain.linearRampToValueAtTime(0.7, now + 1.5);
     } catch (e) {
         console.error("Ambient Ocean Wave synthesis failure: ", e);
     }
@@ -458,6 +476,7 @@ function checkDayReset() {
     if (state.lastActiveDate !== todayStr) {
         state.currentIntake = 0;
         state.logs = [];
+        state.limitReached = false;
         state.lastActiveDate = todayStr;
         saveStateToLocalStorage();
     }
@@ -472,9 +491,17 @@ async function logHydration(amount) {
     if (amount <= 0) return;
     
     checkDayReset();
+
+    if (state.limitReached) {
+        speakText("You have reached the limit if you need to drink more you must increase the limit");
+        alert("You have reached the limit if you need to drink more you must increase the limit");
+        return;
+    }
+
     playBubbleSound();
 
     const timestampStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    let willReachLimit = (state.currentIntake + amount) >= state.dailyGoal;
     
     if (supabaseClient && currentUser) {
         try {
@@ -507,7 +534,17 @@ async function logHydration(amount) {
         saveLocalLog(amount, timestampStr);
     }
     
-    renderUI();
+    if (willReachLimit) {
+        state.limitReached = true;
+        state.currentIntake = 0; // reset cup to empty
+        saveStateToLocalStorage();
+        resetTimer(); // Deactivate timer/notifications
+        renderUI();
+        speakText("You have reached the limit if you need to drink more you must increase the limit");
+        alert("You have reached the limit if you need to drink more you must increase the limit");
+    } else {
+        renderUI();
+    }
 }
 
 function saveLocalLog(amount, timestampStr) {
@@ -553,7 +590,14 @@ async function deleteLogEntry(id) {
 
 // Clear History
 async function clearHistory() {
-    if (!confirm("Are you sure you want to reset all of today's hydration logs?")) return;
+    await performFullReset(true);
+}
+
+// Perform Full Reset of Timer, Cup level, and Logs
+async function performFullReset(confirmUser = true) {
+    if (confirmUser && !confirm("Are you sure you want to reset all of today's hydration logs and the timer?")) return;
+    
+    resetTimer();
     
     if (supabaseClient && currentUser) {
         try {
@@ -569,12 +613,15 @@ async function clearHistory() {
             if (error) throw error;
         } catch (e) {
             console.error("Failed to delete database records: ", e.message);
-            alert("Database deletion failed. Records cleared locally only.");
+            if (confirmUser) {
+                alert("Database deletion failed. Records cleared locally only.");
+            }
         }
     }
     
     state.currentIntake = 0;
     state.logs = [];
+    state.limitReached = false;
     saveStateToLocalStorage();
     renderUI();
 }
@@ -732,9 +779,11 @@ function toggleTimer() {
 function resetTimer() {
     clearInterval(countdownTimerId);
     state.isTimerRunning = false;
-    document.getElementById('btn-timer-toggle').textContent = 'Start Timer';
-    document.getElementById('btn-timer-toggle').classList.remove('active');
-    
+    const btn = document.getElementById('btn-timer-toggle');
+    if (btn) {
+        btn.textContent = 'Start Timer';
+        btn.classList.remove('active');
+    }
     setupTimer();
 }
 
@@ -770,6 +819,9 @@ function triggerScreenSaver() {
     
     // Display desktop browser notification (if permitted)
     sendBrowserNotification();
+
+    // Voice announcement over audio
+    speakText("It is time to drink water. Close your eyes, take a deep breath, and have a sip.");
 
     // Enable click listener on document to exit
     setTimeout(() => {
@@ -823,9 +875,14 @@ function sendBrowserNotification() {
     if ('Notification' in window && Notification.permission === 'granted') {
         const options = {
             body: 'It is time to hydrate. Take a moment, feel the tide, and enjoy a glass of water.',
-            icon: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">💧</text></svg>'
+            icon: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">💧</text></svg>',
+            requireInteraction: true
         };
-        new Notification('AquaFlow: Hydration Call', options);
+        const notification = new Notification('AquaFlow: Hydration Call', options);
+        notification.onclick = function() {
+            window.focus();
+            triggerScreenSaver();
+        };
     }
 }
 
@@ -865,7 +922,7 @@ function setupEventListeners() {
     });
     
     document.getElementById('btn-timer-toggle').addEventListener('click', toggleTimer);
-    document.getElementById('btn-timer-reset').addEventListener('click', resetTimer);
+    document.getElementById('btn-timer-reset').addEventListener('click', () => performFullReset(true));
     
     // Screensaver manual trigger test
     document.getElementById('btn-trigger-screensaver').addEventListener('click', () => {
@@ -889,6 +946,17 @@ function setupEventListeners() {
         const goal = parseInt(goalInput.value, 10);
         if (goal && goal >= 500 && goal <= 10000) {
             state.dailyGoal = goal;
+            
+            // Reevaluate limit and intake
+            const totalLogged = state.logs.reduce((acc, log) => acc + log.amount, 0);
+            if (state.dailyGoal > totalLogged) {
+                state.limitReached = false;
+                state.currentIntake = totalLogged;
+            } else {
+                state.limitReached = true;
+                state.currentIntake = 0;
+            }
+            
             uploadSettingsUpdate();
             renderUI();
         } else {
@@ -909,5 +977,5 @@ function setupEventListeners() {
     });
 
     // History clear
-    document.getElementById('btn-clear-history').addEventListener('click', clearHistory);
+    document.getElementById('btn-clear-history').addEventListener('click', () => performFullReset(true));
 }
