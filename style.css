@@ -1055,6 +1055,7 @@ select:focus {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
+    cursor: pointer;
 }
 
 /* Deep golden sand shore at the bottom */

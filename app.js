@@ -21,6 +21,7 @@ let currentUser = null;
 
 // Timer reference
 let countdownTimerId = null;
+let timerWorker = null;
 
 // Audio Context & Nodes (Lazy initialized)
 let audioCtx = null;
@@ -38,7 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     checkDayReset();
     renderUI();
     setupEventListeners();
-    updateCountdownDisplay();
+    initTimerOnLoad();
 });
 
 // Register Service Worker for PWA installability
@@ -471,8 +472,6 @@ function loadStateFromLocalStorage() {
         try {
             const parsed = JSON.parse(saved);
             state = { ...state, ...parsed };
-            // Ensure timer isn't saved as running, pause it by default on reload
-            state.isTimerRunning = false;
         } catch (e) {
             console.error("Error loading local storage state: ", e);
         }
@@ -645,6 +644,12 @@ function renderUI() {
     document.getElementById('target-goal').textContent = state.dailyGoal;
     document.getElementById('daily-goal-input').value = state.dailyGoal;
     
+    // Sync interval select element to match internal state
+    const select = document.getElementById('interval-select');
+    if (select) {
+        select.value = state.timerInterval;
+    }
+    
     // 2. Calculate and render percentage
     const percent = state.dailyGoal > 0 ? Math.min(100, Math.round((state.currentIntake / state.dailyGoal) * 100)) : 0;
     document.getElementById('progress-percentage').textContent = `${percent}%`;
@@ -745,10 +750,107 @@ function renderLogsList() {
    Timer & Screen Saver Engine
    ========================================================================== */
 
+// Web Worker background timer initialization
+function initTimerWorker() {
+    if (timerWorker) return;
+
+    const workerCode = `
+        let workerIntervalId = null;
+        self.onmessage = function(e) {
+            if (e.data.action === 'start') {
+                if (workerIntervalId) clearInterval(workerIntervalId);
+                workerIntervalId = setInterval(() => {
+                    self.postMessage({ action: 'tick' });
+                }, 1000);
+            } else if (e.data.action === 'stop') {
+                if (workerIntervalId) {
+                    clearInterval(workerIntervalId);
+                    workerIntervalId = null;
+                }
+            }
+        };
+    `;
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    timerWorker = new Worker(URL.createObjectURL(blob));
+
+    timerWorker.onmessage = function(e) {
+        if (e.data.action === 'tick') {
+            timerTick();
+        }
+    };
+}
+
+// Tick handler driven by Web Worker
+function timerTick() {
+    if (!state.isTimerRunning || !state.timerTargetTimestamp) return;
+
+    const now = Date.now();
+    const remaining = Math.max(0, Math.ceil((state.timerTargetTimestamp - now) / 1000));
+
+    state.timerRemaining = remaining;
+    updateCountdownDisplay();
+    saveStateToLocalStorage();
+
+    if (state.timerRemaining <= 0) {
+        // Stop timer
+        state.isTimerRunning = false;
+        if (timerWorker) {
+            timerWorker.postMessage({ action: 'stop' });
+        }
+        
+        saveStateToLocalStorage();
+        
+        const btn = document.getElementById('btn-timer-toggle');
+        if (btn) {
+            btn.textContent = 'Start Timer';
+            btn.classList.remove('active');
+        }
+
+        // Trigger screen saver & chime
+        triggerScreenSaver();
+    }
+}
+
+// Auto-resumes timer or handles expiration on load
+function initTimerOnLoad() {
+    if (state.isTimerRunning && state.timerTargetTimestamp) {
+        const now = Date.now();
+        const remaining = Math.max(0, Math.ceil((state.timerTargetTimestamp - now) / 1000));
+
+        if (remaining > 0) {
+            state.timerRemaining = remaining;
+            updateCountdownDisplay();
+            
+            initTimerWorker();
+            const btn = document.getElementById('btn-timer-toggle');
+            if (btn) {
+                btn.textContent = 'Pause Timer';
+                btn.classList.add('active');
+            }
+            timerWorker.postMessage({ action: 'start' });
+        } else {
+            // Timer expired while page was closed
+            state.isTimerRunning = false;
+            state.timerRemaining = state.timerInterval;
+            updateCountdownDisplay();
+            saveStateToLocalStorage();
+
+            setTimeout(() => {
+                triggerScreenSaver();
+            }, 1000);
+        }
+    } else {
+        state.isTimerRunning = false;
+        state.timerRemaining = state.timerInterval;
+        updateCountdownDisplay();
+    }
+}
+
 function setupTimer() {
     const select = document.getElementById('interval-select');
     state.timerInterval = parseInt(select.value, 10);
     state.timerRemaining = state.timerInterval;
+    state.timerTargetTimestamp = null;
     updateCountdownDisplay();
 }
 
@@ -756,44 +858,43 @@ function toggleTimer() {
     const btn = document.getElementById('btn-timer-toggle');
     if (state.isTimerRunning) {
         // Pause timer
-        clearInterval(countdownTimerId);
         state.isTimerRunning = false;
+        if (timerWorker) {
+            timerWorker.postMessage({ action: 'stop' });
+        }
         btn.textContent = 'Start Timer';
         btn.classList.remove('active');
+        saveStateToLocalStorage();
     } else {
         // Start timer
         initAudio(); // Warm up Web Audio
+        initTimerWorker();
+        
         state.isTimerRunning = true;
         btn.textContent = 'Pause Timer';
         btn.classList.add('active');
         
-        countdownTimerId = setInterval(() => {
-            state.timerRemaining--;
-            
-            if (state.timerRemaining <= 0) {
-                clearInterval(countdownTimerId);
-                state.isTimerRunning = false;
-                btn.textContent = 'Start Timer';
-                btn.classList.remove('active');
-                
-                // Trigger screen saver & chime
-                triggerScreenSaver();
-            }
-            
-            updateCountdownDisplay();
-        }, 1000);
+        // Calculate/update target timestamp
+        state.timerTargetTimestamp = Date.now() + state.timerRemaining * 1000;
+        saveStateToLocalStorage();
+        
+        timerWorker.postMessage({ action: 'start' });
     }
 }
 
 function resetTimer() {
-    clearInterval(countdownTimerId);
+    if (timerWorker) {
+        timerWorker.postMessage({ action: 'stop' });
+    }
     state.isTimerRunning = false;
+    state.timerTargetTimestamp = null;
     const btn = document.getElementById('btn-timer-toggle');
     if (btn) {
         btn.textContent = 'Start Timer';
         btn.classList.remove('active');
     }
     setupTimer();
+    saveStateToLocalStorage();
 }
 
 function updateCountdownDisplay() {
@@ -832,20 +933,22 @@ function triggerScreenSaver() {
     // Voice announcement over audio
     speakText("It is time to drink water. Close your eyes, take a deep breath, and have a sip.");
 
-    // Enable click listener on document to exit
+    // Enable click listener directly on overlay element to support mobile tapping correctly
     setTimeout(() => {
-        document.addEventListener('click', dismissScreenSaver);
+        overlay.addEventListener('click', dismissScreenSaver);
+        overlay.addEventListener('touchstart', dismissScreenSaver, { passive: true });
         document.addEventListener('keydown', dismissScreenSaver);
     }, 1000); // 1s buffer to avoid accidental double clicks
 }
 
 // Dismiss Screen Saver
 function dismissScreenSaver(e) {
-    // Unbind listeners
-    document.removeEventListener('click', dismissScreenSaver);
+    const overlay = document.getElementById('screensaver');
+    // Unbind listeners from overlay to prevent multiple calls
+    overlay.removeEventListener('click', dismissScreenSaver);
+    overlay.removeEventListener('touchstart', dismissScreenSaver);
     document.removeEventListener('keydown', dismissScreenSaver);
     
-    const overlay = document.getElementById('screensaver');
     overlay.classList.remove('active');
     
     // Turn off ocean sound loop
@@ -885,13 +988,30 @@ function sendBrowserNotification() {
         const options = {
             body: 'It is time to hydrate. Take a moment, feel the tide, and enjoy a glass of water.',
             icon: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="80" font-size="80">💧</text></svg>',
-            requireInteraction: true
+            requireInteraction: true,
+            tag: 'aquaflow-hydration-reminder'
         };
-        const notification = new Notification('AquaFlow: Hydration Call', options);
-        notification.onclick = function() {
-            window.focus();
-            triggerScreenSaver();
-        };
+        
+        // Show notification via Service Worker registration to make it reliable in background
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then(reg => {
+                reg.showNotification('AquaFlow: Hydration Call', options);
+            }).catch(err => {
+                // Fallback to legacy browser notifications
+                const notification = new Notification('AquaFlow: Hydration Call', options);
+                notification.onclick = function() {
+                    window.focus();
+                    triggerScreenSaver();
+                };
+            });
+        } else {
+            // Fallback to legacy browser notifications
+            const notification = new Notification('AquaFlow: Hydration Call', options);
+            notification.onclick = function() {
+                window.focus();
+                triggerScreenSaver();
+            };
+        }
     }
 }
 
